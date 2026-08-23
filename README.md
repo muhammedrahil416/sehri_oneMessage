@@ -1,1 +1,1 @@
-API test command: curl -X POST http://127.0.0.1:5000/api/auth/register -H "Content-Type: application/json" -d '{"name":"Test User","phone":"9876543210","password":"test123","otp":"123456"}'
+API test command: curl -X POST http://127.0.0.1:5000/api/auth/register -H "Content-Type: application/json" -d '{"name":"Test User","phone":"9876000000","password":"test123","otp":"123456"}'
