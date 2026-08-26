@@ -14,7 +14,7 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       type: {
-        type: DataTypes.ENUM('city', 'area', 'zone'),
+        type: DataTypes.ENUM('city', 'area', 'zone', 'address'),
         allowNull: false,
       },
       parent_id: {
@@ -37,16 +37,15 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ['type'] },
       ],
       validate: {
-        // Enforces the hierarchy shape at the model level, in addition to the FK.
-        parentRequiredUnlessCity() {
-          if (this.type !== 'city' && !this.parent_id) {
-            throw new Error(`A location of type '${this.type}' must have a parent_id.`);
-          }
-          if (this.type === 'city' && this.parent_id) {
-            throw new Error(`A location of type 'city' cannot have a parent_id.`);
-          }
-        },
-      },
+  parentRequiredUnlessCity() {
+    if (this.type !== 'city' && !this.parent_id) {
+      throw new Error(`A location of type '${this.type}' must have a parent_id.`);
+    }
+    if (this.type === 'city' && this.parent_id) {
+      throw new Error(`A location of type 'city' cannot have a parent_id.`);
+    }
+  },
+},
     }
   );
 

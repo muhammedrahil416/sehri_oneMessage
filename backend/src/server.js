@@ -3,6 +3,8 @@ const express = require("express");
 const authRoutes = require("./routes/authRoutes");   // teammate's registration route (unchanged)
 const sendOtpRoutes = require("./routes/auth");        // your OTP route
 const { testConnection } = require("./config/database"); // your DB connection
+const userRoutes = require("./routes/users");
+
 
 const app = express();
 app.use(express.json());
@@ -14,6 +16,7 @@ app.get("/", (req, res) => {
 
 app.use("/api/auth", authRoutes);      // handles /api/auth/register (their code)
 app.use("/api/auth", sendOtpRoutes);   // handles /api/auth/send-otp (your code)
+app.use("/api/users", userRoutes);
 
 const PORT = process.env.PORT || 5000;
 
