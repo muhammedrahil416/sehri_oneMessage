@@ -1,12 +1,11 @@
 'use strict';
 const bcrypt = require('bcryptjs');
-const { Op } = require('sequelize');
 const db = require('../models');
-const { compareOtp } = require('../utils/otp');
+const otpService = require('../services/otpService');
 const { success, error } = require('../utils/response');
 const { signAccessToken, signRefreshToken } = require('../utils/jwt');
 
-const { User, OTP, Location, Admin, SuperAdmin } = db;
+const { User, Location, Admin, SuperAdmin } = db;
 const registerUser = async (req, res) => {
   try {
     const {
@@ -20,26 +19,9 @@ const registerUser = async (req, res) => {
       address,
       otp,
     } = req.body;
-    // 1. Find the latest unused registration OTP
-    const otpRecord = await OTP.findOne({
-      where: {
-        phone,
-        purpose: 'registration',
-        is_used: false,
-        expires_at: {
-          [Op.gt]: new Date(),
-        },
-      },
-      order: [['createdAt', 'DESC']],
-    });
-    if (!otpRecord) {
-      return error(res, {
-        statusCode: 400,
-        message: 'OTP not found or expired',
-      });
-    }
-    // 2. Verify OTP
-    const isOtpValid = await compareOtp(otp, otpRecord.otp_hash);
+    // 1 & 2. Verify OTP — handles lookup, expiry, attempt-limiting, and
+    // provider branching (local vs MessageCentral) internally.
+    const isOtpValid = await otpService.verifyOtp(phone, 'registration', otp);
     if (!isOtpValid) {
       return error(res, {
         statusCode: 400,
@@ -81,10 +63,7 @@ const registerUser = async (req, res) => {
       status: 'pending',
       is_phone_verified: true,
     });
-    // 7. Mark OTP as used
-    otpRecord.is_used = true;
-    await otpRecord.save();
-    // 8. Send response
+    // 7. Send response
     return success(res, {
       statusCode: 201,
       message: 'Registration successful',

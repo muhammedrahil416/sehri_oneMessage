@@ -50,9 +50,9 @@ const validateRegistration = (req, res, next) => {
     });
   }
 
-  if (!/^\d{6}$/.test(otp)) {
+  if (!/^\d{4,6}$/.test(otp)) {
     return res.status(400).json({
-      message: "OTP must be 6 digits"
+      message: "OTP must be 4 to 6 digits"
     });
   }
 

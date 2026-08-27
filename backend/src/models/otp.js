@@ -1,5 +1,4 @@
 'use strict';
-
 module.exports = (sequelize, DataTypes) => {
   const OTP = sequelize.define(
     'OTP',
@@ -14,11 +13,25 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       otp_hash: {
-        // The OTP is NEVER stored in plaintext - only a bcrypt hash of it.
-        // This matters: this table is a juicy target, and OTPs are short enough
-        // to be brute-forced quickly if leaked in plaintext.
+        // Only present for provider = 'local'. MessageCentral-provider rows
+        // never populate this - MessageCentral owns OTP generation for
+        // those, so there's no plaintext code on our side to hash.
         type: DataTypes.STRING,
+        allowNull: true,
+      },
+      verification_id: {
+        // Only present for provider = 'messagecentral'. This is MessageCentral's
+        // reference ID for the send request - not a secret, just a lookup key
+        // passed to their validateOtp API.
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      provider: {
+        // Which system generated + will verify this OTP. All verification
+        // logic branches on this field explicitly.
+        type: DataTypes.ENUM('local', 'messagecentral'),
         allowNull: false,
+        defaultValue: 'local',
       },
       purpose: {
         type: DataTypes.ENUM('registration', 'forgot_password'),
@@ -55,6 +68,5 @@ module.exports = (sequelize, DataTypes) => {
       ],
     }
   );
-
   return OTP;
 };
