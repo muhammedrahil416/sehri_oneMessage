@@ -36,7 +36,7 @@ export default function ForgotPasswordScreen() {
 
     setLoading(true);
     try {
-      await authApi.sendOtp({ phone });
+      await authApi.sendOtp(phone, 'forgot_password');
       setOtpSent(true);
       Alert.alert('Success', 'OTP sent to your phone number');
     } catch (error) {

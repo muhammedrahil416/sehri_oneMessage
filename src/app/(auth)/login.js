@@ -44,8 +44,9 @@ export default function LoginScreen() {
     try {
       const response = await authApi.login({ phone, password, role });
 
-      // Save session tokens and navigate
-      await setAuth(response.user, response.accessToken, response.refreshToken);
+      // Backend wraps data under response.data; profile is under data.profile
+      const { accessToken, refreshToken, profile } = response.data;
+      await setAuth(profile, accessToken, refreshToken);
       router.replace('/(app)/home');
     } catch (error) {
       const msg = error.response?.data?.message || 'Login failed. Please check your credentials.';
