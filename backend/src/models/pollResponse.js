@@ -1,0 +1,92 @@
+'use strict';
+
+module.exports = (sequelize, DataTypes) => {
+  const PollResponse = sequelize.define(
+    'PollResponse',
+    {
+      id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true,
+      },
+      poll_id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+          model: 'polls',
+          key: 'id',
+        },
+      },
+      user_id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+          model: 'users',
+          key: 'id',
+        },
+      },
+      // The user's primary vote, cast during the voting window (10PM–10AM).
+      response: {
+        type: DataTypes.ENUM('yes', 'no'),
+        allowNull: false,
+      },
+      // Snapshot of the user's zone at vote time. Stored here so that even
+      // if the user's zone changes later, the kitchen count stays accurate.
+      zone: {
+        type: DataTypes.ENUM('masjid', 'boys_hostel', 'stanza', 'girls'),
+        allowNull: false,
+      },
+      // --- Special case fields (10AM–5PM window) ---
+
+      // True when the user submits a special case during the 10AM–5PM window.
+      is_special_case: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+      },
+      // 'want'      = originally voted No, now wants food
+      // 'dont_want' = originally voted Yes, no longer wants food
+      // Null when is_special_case is false.
+      special_case_type: {
+        type: DataTypes.ENUM('want', 'dont_want'),
+        allowNull: true,
+      },
+      // Exact timestamp when the special case was submitted.
+      special_case_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      // Super admin decision on the special case (5–6PM allotment window).
+      // Null = not yet reviewed. 'approved' / 'rejected' set by super admin.
+      sehri_allowed: {
+        type: DataTypes.ENUM('approved', 'rejected'),
+        allowNull: true,
+      },
+    },
+    {
+      tableName: 'poll_responses',
+      indexes: [
+        // One response per user per poll — enforced at DB level.
+        { unique: true, fields: ['poll_id', 'user_id'] },
+        { fields: ['poll_id'] },
+        { fields: ['user_id'] },
+        // Zone-grouped aggregation queries use this heavily.
+        { fields: ['poll_id', 'zone'] },
+        // Super admin special-cases list filters on this.
+        { fields: ['poll_id', 'is_special_case'] },
+      ],
+    }
+  );
+
+  PollResponse.associate = (models) => {
+    PollResponse.belongsTo(models.Poll, {
+      foreignKey: 'poll_id',
+      as: 'poll',
+    });
+    PollResponse.belongsTo(models.User, {
+      foreignKey: 'user_id',
+      as: 'user',
+    });
+  };
+
+  return PollResponse;
+};
