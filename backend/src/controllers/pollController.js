@@ -4,10 +4,13 @@ const { Op } = require('sequelize');
 const db = require('../models');
 const { success, error } = require('../utils/response');
 const { resolveZone } = require('../utils/resolveZone');
+
 const {
   getPollPhase,
   isVotingOpen,
+  isSpecialCaseWindowOpen,
   PHASES,
+  getNow,
 } = require('../utils/pollPhase');
 
 const { Poll, PollResponse, User } = db;
@@ -181,6 +184,113 @@ const submitVote = async (req, res) => {
   } catch (err) {
     console.error('submitVote error:', err);
     return error(res, { statusCode: 500, message: 'Server error' });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/polls/:id/special-case
+// Body: { type: 'want' | 'dont_want' }
+// Access: user
+//
+// Users may raise a special case only during the 10AM–5PM IST window.
+// The user must already have voted on this poll.
+// ---------------------------------------------------------------------------
+const submitSpecialCase = async (req, res) => {
+  try {
+    const { id: pollId } = req.params;
+    const { type } = req.body;
+
+    // 1. Validate input
+    if (!type || !['want', 'dont_want'].includes(type)) {
+      return error(res, {
+        statusCode: 400,
+        message: "Type must be 'want' or 'dont_want'",
+      });
+    }
+
+    // 2. Load poll
+    const poll = await Poll.findByPk(pollId);
+
+    if (!poll) {
+      return error(res, {
+        statusCode: 404,
+        message: 'Poll not found',
+      });
+    }
+
+    // 3. Check special-case window
+    if (!isSpecialCaseWindowOpen(poll)) {
+      return error(res, {
+        statusCode: 403,
+        message: 'Special case window is not open',
+      });
+    }
+
+    // 4. Find the user's existing vote
+    const pollResponse = await PollResponse.findOne({
+      where: {
+        poll_id: pollId,
+        user_id: req.auth.id,
+      },
+    });
+
+    if (!pollResponse) {
+      return error(res, {
+        statusCode: 400,
+        message: 'You must vote on this poll before raising a special case',
+      });
+    }
+
+    // 5. Validate special-case type against original vote
+    if (type === 'want' && pollResponse.response !== 'no') {
+      return error(res, {
+        statusCode: 400,
+        message: "Special case 'want' is only valid for a 'no' vote",
+      });
+    }
+
+    if (type === 'dont_want' && pollResponse.response !== 'yes') {
+      return error(res, {
+        statusCode: 400,
+        message: "Special case 'dont_want' is only valid for a 'yes' vote",
+      });
+    }
+
+    // 6. Prevent duplicate special case
+    if (pollResponse.is_special_case) {
+      return error(res, {
+        statusCode: 409,
+        message: 'A special case has already been raised for this vote',
+      });
+    }
+
+    // 7. Update the existing response row
+    pollResponse.is_special_case = true;
+    pollResponse.special_case_type = type;
+    pollResponse.special_case_at = getNow();
+
+    await pollResponse.save();
+
+    // 8. Return updated special-case information
+    return success(res, {
+      statusCode: 200,
+      message: 'Special case submitted successfully',
+      data: {
+        response_id: pollResponse.id,
+        response: pollResponse.response,
+        is_special_case: pollResponse.is_special_case,
+        special_case_type: pollResponse.special_case_type,
+        special_case_at: pollResponse.special_case_at,
+        sehri_allowed: pollResponse.sehri_allowed,
+      },
+    });
+  } catch (err) {
+    console.error('submitSpecialCase error:', err);
+
+    return error(res, {
+      statusCode: 500,
+      message: 'Server error',
+    });
   }
 };
 
@@ -421,4 +531,5 @@ module.exports = {
   getMyResponses,
   getActiveStats,
   getZoneVoters,
+  submitSpecialCase, // code at 190th line above getMyResponses 
 };

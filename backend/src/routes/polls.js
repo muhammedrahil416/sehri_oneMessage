@@ -7,10 +7,12 @@ const { verifyToken, requireRole } = require('../middleware/auth');
 const {
   getActivePoll,
   submitVote,
+  submitSpecialCase,
   getMyResponses,
   getActiveStats,
   getZoneVoters,
 } = require('../controllers/pollController');
+
 
 // ---------------------------------------------------------------------------
 // Person 1 — core voting flow
@@ -35,6 +37,16 @@ router.get('/my-responses', verifyToken, requireRole('user'), getMyResponses);
 // POST /api/polls/:id/respond
 // Submit a yes/no vote. Only approved users may vote.
 // Body: { response: 'yes' | 'no' }
+
+
+// rahil - special case
+router.post(
+  '/:id/special-case',
+  verifyToken,
+  requireRole('user'),
+  submitSpecialCase
+);
+
 router.post('/:id/respond', verifyToken, requireRole('user'), submitVote);
 
 // GET /api/polls/:id/zone-voters
