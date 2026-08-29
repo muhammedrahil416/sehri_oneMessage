@@ -8,6 +8,7 @@ const {
   getActivePoll,
   submitVote,
   submitSpecialCase,
+  undoSpecialCase,
   getMyResponses,
   getActiveStats,
   getZoneVoters,
@@ -45,6 +46,14 @@ router.post(
   verifyToken,
   requireRole('user'),
   submitSpecialCase
+);
+
+//undo case
+router.post(
+  '/:id/special-case/undo',
+  verifyToken,
+  requireRole('user'),
+  undoSpecialCase
 );
 
 router.post('/:id/respond', verifyToken, requireRole('user'), submitVote);

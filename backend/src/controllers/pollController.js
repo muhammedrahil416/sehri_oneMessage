@@ -294,6 +294,97 @@ const submitSpecialCase = async (req, res) => {
   }
 };
 
+//undo sp case
+// ---------------------------------------------------------------------------
+// POST /api/polls/:id/special-case/undo
+// Access: user
+//
+// Users may undo a special case only during the 10AM–5PM IST window.
+// Once the super admin has reviewed the case, it cannot be undone.
+// ---------------------------------------------------------------------------
+const undoSpecialCase = async (req, res) => {
+  try {
+    const { id: pollId } = req.params;
+
+    // 1. Load poll
+    const poll = await Poll.findByPk(pollId);
+
+    if (!poll) {
+      return error(res, {
+        statusCode: 404,
+        message: 'Poll not found',
+      });
+    }
+
+    // 2. Check special-case window
+    if (!isSpecialCaseWindowOpen(poll)) {
+      return error(res, {
+        statusCode: 403,
+        message: 'Special case window is not open',
+      });
+    }
+
+    // 3. Find the user's response
+    const pollResponse = await PollResponse.findOne({
+      where: {
+        poll_id: pollId,
+        user_id: req.auth.id,
+      },
+    });
+
+    if (!pollResponse) {
+      return error(res, {
+        statusCode: 404,
+        message: 'You have not voted on this poll',
+      });
+    }
+
+    // 4. Check whether a special case exists
+    if (!pollResponse.is_special_case) {
+      return error(res, {
+        statusCode: 400,
+        message: 'No active special case found',
+      });
+    }
+
+    // 5. Cannot undo after super admin has reviewed it
+    if (pollResponse.sehri_allowed !== null) {
+      return error(res, {
+        statusCode: 409,
+        message: 'Special case has already been reviewed and cannot be undone',
+      });
+    }
+
+    // 6. Reset special-case fields
+    pollResponse.is_special_case = false;
+    pollResponse.special_case_type = null;
+    pollResponse.special_case_at = null;
+
+    await pollResponse.save();
+
+    // 7. Return updated response
+    return success(res, {
+      statusCode: 200,
+      message: 'Special case undone successfully',
+      data: {
+        response_id: pollResponse.id,
+        response: pollResponse.response,
+        is_special_case: pollResponse.is_special_case,
+        special_case_type: pollResponse.special_case_type,
+        special_case_at: pollResponse.special_case_at,
+        sehri_allowed: pollResponse.sehri_allowed,
+      },
+    });
+  } catch (err) {
+    console.error('undoSpecialCase error:', err);
+
+    return error(res, {
+      statusCode: 500,
+      message: 'Server error',
+    });
+  }
+};
+
 // ---------------------------------------------------------------------------
 // GET /api/polls/my-responses
 // Access: authenticated users
@@ -528,6 +619,8 @@ const getZoneVoters = async (req, res) => {
 module.exports = {
   getActivePoll,
   submitVote,
+  submitSpecialCase, // code at 190th line above getMyResponses 
+  undoSpecialCase, // code at 297 fr undo case
   getMyResponses,
   getActiveStats,
   getZoneVoters,
