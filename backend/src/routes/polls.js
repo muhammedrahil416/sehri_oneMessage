@@ -9,6 +9,7 @@ const {
   submitVote,
   submitSpecialCase,
   undoSpecialCase,
+  getSpecialCases,
   getMyResponses,
   getActiveStats,
   getZoneVoters,
@@ -38,6 +39,13 @@ router.get('/my-responses', verifyToken, requireRole('user'), getMyResponses);
 // POST /api/polls/:id/respond
 // Submit a yes/no vote. Only approved users may vote.
 // Body: { response: 'yes' | 'no' }
+
+router.get(
+  '/special-cases',
+  verifyToken,
+  requireRole('super_admin'),
+  getSpecialCases
+);
 
 
 // rahil - special case

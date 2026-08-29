@@ -385,6 +385,76 @@ const undoSpecialCase = async (req, res) => {
   }
 };
 
+
+// ---------------------------------------------------------------------------
+// GET /api/polls/special-cases
+// Access: super_admin
+//
+// Returns today's poll responses where a special case was raised.
+// ---------------------------------------------------------------------------
+const getSpecialCases = async (req, res) => {
+  try {
+    // 1. Get today's poll
+    const poll = await getTodaysPoll();
+
+    if (!poll) {
+      return success(res, {
+        statusCode: 200,
+        message: 'No poll scheduled for today',
+        data: {
+          poll: null,
+          cases: [],
+        },
+      });
+    }
+
+    // 2. Fetch today's special cases
+    const cases = await PollResponse.findAll({
+      where: {
+        poll_id: poll.id,
+        is_special_case: true,
+      },
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'name', 'phone'],
+        },
+      ],
+      attributes: [
+        'id',
+        'response',
+        'zone',
+        'special_case_type',
+        'special_case_at',
+        'sehri_allowed',
+      ],
+      order: [['special_case_at', 'ASC']],
+    });
+
+    // 3. Return special cases
+    return success(res, {
+      statusCode: 200,
+      message: 'Special cases fetched successfully',
+      data: {
+        poll: {
+          id: poll.id,
+          date: poll.date,
+          question: poll.question,
+        },
+        cases,
+      },
+    });
+  } catch (err) {
+    console.error('getSpecialCases error:', err);
+
+    return error(res, {
+      statusCode: 500,
+      message: 'Server error',
+    });
+  }
+};
+
 // ---------------------------------------------------------------------------
 // GET /api/polls/my-responses
 // Access: authenticated users
@@ -621,8 +691,8 @@ module.exports = {
   submitVote,
   submitSpecialCase, // code at 190th line above getMyResponses 
   undoSpecialCase, // code at 297 fr undo case
+  getSpecialCases,
   getMyResponses,
   getActiveStats,
-  getZoneVoters,
-  submitSpecialCase, // code at 190th line above getMyResponses 
+  getZoneVoters, 
 };
