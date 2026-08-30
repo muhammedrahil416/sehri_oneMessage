@@ -1,62 +1,57 @@
-const validateRegistration = (req, res, next) => {
-  const {
-    name,
-    phone,
-    password,
-    gender,
-    occupation,
-    location_id,
-    address,
-    otp
-  } = req.body;
+'use strict';
 
-  if (
-    !name ||
-    !phone ||
-    !password ||
-    !gender ||
-    !occupation ||
-    !location_id ||
-    !address ||
-    !otp
-  ) {
-    return res.status(400).json({
-      message:
-        "Name, phone, password, gender, occupation, location_id, address and OTP are required"
-    });
-  }
+const { body } = require('express-validator');
+const { handleValidationErrors } = require('./otpValidation');
 
-  if (!/^[6-9]\d{9}$/.test(phone)) {
-    return res.status(400).json({
-      message: "Phone number must be a valid 10-digit Indian mobile number"
-    });
-  }
+/**
+ * Validation chain for POST /api/auth/register.
+ *
+ * Returns an array of express-validator checks followed by the shared
+ * handleValidationErrors middleware. All validation errors are collected
+ * and returned together using the same error shape as the rest of the API
+ * (via the shared response utility inside handleValidationErrors).
+ *
+ * Usage in routes:
+ *   router.post('/register', validateRegistration, registerUser);
+ */
+const validateRegistration = [
+  body('name')
+    .trim()
+    .notEmpty()
+    .withMessage('Name is required'),
 
-  if (password.length < 6) {
-    return res.status(400).json({
-      message: "Password must be at least 6 characters"
-    });
-  }
+  body('phone')
+    .trim()
+    .matches(/^[6-9]\d{9}$/)
+    .withMessage('Phone must be a valid 10-digit Indian mobile number'),
 
-  if (!["male", "female"].includes(gender)) {
-    return res.status(400).json({
-      message: "Gender must be male or female"
-    });
-  }
+  body('password')
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters'),
 
-  if (!["student", "employee", "others"].includes(occupation)) {
-    return res.status(400).json({
-      message: "Invalid occupation"
-    });
-  }
+  body('gender')
+    .isIn(['male', 'female'])
+    .withMessage('Gender must be male or female'),
 
-  if (!/^\d{4,6}$/.test(otp)) {
-    return res.status(400).json({
-      message: "OTP must be 4 to 6 digits"
-    });
-  }
+  body('occupation')
+    .isIn(['student', 'employee', 'others'])
+    .withMessage('Occupation must be student, employee, or others'),
 
-  next();
-};
+  body('location_id')
+    .notEmpty()
+    .withMessage('location_id is required'),
+
+  body('address')
+    .trim()
+    .notEmpty()
+    .withMessage('Address is required'),
+
+  body('otp')
+    .trim()
+    .matches(/^\d{4,6}$/)
+    .withMessage('OTP must be 4 to 6 digits'),
+
+  handleValidationErrors,
+];
 
 module.exports = validateRegistration;

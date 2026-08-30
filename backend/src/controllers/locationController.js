@@ -17,7 +17,7 @@ const { Location } = db;
  *   GET /api/locations?type=zone              → all zones
  *   GET /api/locations?type=address&parent_id=<zone-id>  → addresses under a zone
  */
-const getLocations = async (req, res) => {
+const getLocations = async (req, res, next) => {
   try {
     const { type, parent_id } = req.query;
 
@@ -37,8 +37,7 @@ const getLocations = async (req, res) => {
       data: locations,
     });
   } catch (err) {
-    console.error('Get locations error:', err);
-    return error(res, { statusCode: 500, message: 'Server error' });
+    next(err);
   }
 };
 

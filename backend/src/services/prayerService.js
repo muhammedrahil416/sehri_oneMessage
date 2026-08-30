@@ -21,15 +21,19 @@
 const axios = require('axios');
 const { Coordinates, CalculationMethod, PrayerTimes, SunnahTimes } = require('adhan');
 const db = require('../models');
+const logger = require('../utils/logger');
 
 const { PrayerTiming } = db;
 
-// Bangalore coordinates
-const LATITUDE = 12.9716;
-const LONGITUDE = 77.5946;
-const CITY = 'Bangalore';
-const COUNTRY = 'India';
-const TIMEZONE = 'Asia/Kolkata';
+// ---------------------------------------------------------------------------
+// Location config — read from environment so the app is deployable to any
+// city without touching source code. See .env.example for required keys.
+// ---------------------------------------------------------------------------
+const LATITUDE = parseFloat(process.env.PRAYER_LATITUDE || '12.9716');
+const LONGITUDE = parseFloat(process.env.PRAYER_LONGITUDE || '77.5946');
+const CITY = process.env.PRAYER_CITY || 'Bangalore';
+const COUNTRY = process.env.PRAYER_COUNTRY || 'India';
+const TIMEZONE = process.env.PRAYER_TIMEZONE || 'Asia/Kolkata';
 
 // AlAdhan API — Method 1 = University of Islamic Sciences, Karachi
 // (widely used in South Asia). No API key needed.
@@ -40,7 +44,7 @@ const ALADHAN_URL = 'https://api.aladhan.com/v1/timingsByCity';
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the date string for today in IST (YYYY-MM-DD).
+ * Returns the date string for today in the configured timezone (YYYY-MM-DD).
  * en-CA locale gives YYYY-MM-DD format natively without any slicing.
  */
 const getTodayISTString = () =>
@@ -56,7 +60,7 @@ const cleanTime = (timeStr) => {
 };
 
 /**
- * Converts a Date object to an "HH:MM" string in IST.
+ * Converts a Date object to an "HH:MM" string in the configured timezone.
  * Used to format times produced by the local adhan library.
  */
 const dateToISTString = (date) => {
@@ -72,9 +76,9 @@ const dateToISTString = (date) => {
 /**
  * Calculates Tahajjud time: 2/3 of the night after Isha, before Fajr.
  *
- * @param {string} ishaTime   - "HH:MM" (IST) of tonight's Isha
- * @param {string} fajrTime   - "HH:MM" (IST) of tomorrow's Fajr
- * @returns {string|null}     - "HH:MM" of Tahajjud time in IST, or null on error
+ * @param {string} ishaTime   - "HH:MM" of tonight's Isha
+ * @param {string} fajrTime   - "HH:MM" of tomorrow's Fajr
+ * @returns {string|null}     - "HH:MM" of Tahajjud time, or null on error
  */
 const calculateTahajjud = (ishaTime, fajrTime) => {
   try {
@@ -107,7 +111,7 @@ const calculateTahajjud = (ishaTime, fajrTime) => {
 
     return dateToISTString(tahajjudDate);
   } catch (err) {
-    console.error('calculateTahajjud error:', err.message);
+    logger.error(`calculateTahajjud error: ${err.message}`);
     return null;
   }
 };
@@ -224,7 +228,7 @@ const calculateLocally = (dateStr) => {
 /**
  * Fetches (or retrieves from cache) prayer timings for the given date.
  *
- * @param {string} dateStr - YYYY-MM-DD. Defaults to today IST.
+ * @param {string} dateStr - YYYY-MM-DD. Defaults to today in configured timezone.
  * @param {boolean} forceRefresh - If true, skips DB cache and re-fetches.
  * @returns {object} The PrayerTiming model instance.
  */
@@ -241,9 +245,9 @@ const getPrayerTimings = async (dateStr = null, forceRefresh = false) => {
   let timingData;
   try {
     timingData = await fetchFromAlAdhan(date);
-    console.log(`[prayerService] Fetched timings from AlAdhan API for ${date}`);
+    logger.info(`[prayerService] Fetched timings from AlAdhan API for ${date}`);
   } catch (err) {
-    console.warn(`[prayerService] AlAdhan API failed (${err.message}), using local fallback`);
+    logger.warn(`[prayerService] AlAdhan API failed (${err.message}), using local fallback`);
     timingData = calculateLocally(date);
   }
 

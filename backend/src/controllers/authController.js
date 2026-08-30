@@ -6,7 +6,7 @@ const { success, error } = require('../utils/response');
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require('../utils/jwt');
 
 const { User, Location, Admin, SuperAdmin } = db;
-const registerUser = async (req, res) => {
+const registerUser = async (req, res, next) => {
   try {
     const {
       name,
@@ -21,6 +21,7 @@ const registerUser = async (req, res) => {
     } = req.body;
     // 1 & 2. Verify OTP — handles lookup, expiry, attempt-limiting, and
     // provider branching (local vs MessageCentral) internally.
+    // verifyOtp throws AppError on known failures (expired, too many attempts).
     const isOtpValid = await otpService.verifyOtp(phone, 'registration', otp);
     if (!isOtpValid) {
       return error(res, {
@@ -76,11 +77,7 @@ const registerUser = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Registration error:', err);
-    return error(res, {
-      statusCode: 500,
-      message: 'Server error',
-    });
+    next(err);
   }
 };
 
@@ -92,7 +89,7 @@ const registerUser = async (req, res) => {
  * in that order (highest privilege first, first match wins). The client
  * never declares its own role.
  */
-const loginUser = async (req, res) => {
+const loginUser = async (req, res, next) => {
   try {
     const { phone, password } = req.body;
 
@@ -178,11 +175,7 @@ const loginUser = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Login error:', err);
-    return error(res, {
-      statusCode: 500,
-      message: 'Server error',
-    });
+    next(err);
   }
 };
 
@@ -198,7 +191,7 @@ const loginUser = async (req, res) => {
  * The OTP was previously requested via POST /api/auth/send-otp
  * with purpose = 'forgot_password'.
  */
-const forgotPasswordReset = async (req, res) => {
+const forgotPasswordReset = async (req, res, next) => {
   try {
     const { phone, otp, newPassword } = req.body;
 
@@ -254,12 +247,7 @@ const forgotPasswordReset = async (req, res) => {
       message: 'Password reset successfully',
     });
   } catch (err) {
-    console.error('Forgot password reset error:', err);
-    // Surface AppError messages (e.g. too many OTP attempts) directly
-    if (err.isOperational) {
-      return error(res, { statusCode: err.statusCode, message: err.message });
-    }
-    return error(res, { statusCode: 500, message: 'Server error' });
+    next(err);
   }
 };
 
@@ -271,7 +259,7 @@ const forgotPasswordReset = async (req, res) => {
  * the refresh token (old one is implicitly abandoned — client must store
  * the new one).
  */
-const refreshToken = async (req, res) => {
+const refreshToken = async (req, res, next) => {
   try {
     const { refreshToken: token } = req.body;
 
@@ -310,8 +298,7 @@ const refreshToken = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Refresh token error:', err);
-    return error(res, { statusCode: 500, message: 'Server error' });
+    next(err);
   }
 };
 

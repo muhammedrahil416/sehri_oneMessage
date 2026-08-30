@@ -23,7 +23,7 @@ const { getPrayerTimings, getTodayISTString } = require('../services/prayerServi
 //   imsak_time:    "04:58"
 // }
 // ---------------------------------------------------------------------------
-const getTodayPrayers = async (req, res) => {
+const getTodayPrayers = async (req, res, next) => {
   try {
     const record = await getPrayerTimings();
 
@@ -33,8 +33,7 @@ const getTodayPrayers = async (req, res) => {
       data: formatRecord(record),
     });
   } catch (err) {
-    console.error('getTodayPrayers error:', err);
-    return error(res, { statusCode: 500, message: 'Failed to fetch prayer timings' });
+    next(err);
   }
 };
 
@@ -49,7 +48,7 @@ const getTodayPrayers = async (req, res) => {
 // Also accepts an optional ?date=YYYY-MM-DD query param so the admin can
 // refresh a specific date (e.g. tomorrow's timings before the cron runs).
 // ---------------------------------------------------------------------------
-const forceRefresh = async (req, res) => {
+const forceRefresh = async (req, res, next) => {
   try {
     const dateParam = req.query.date || null;
 
@@ -70,8 +69,7 @@ const forceRefresh = async (req, res) => {
       data: formatRecord(record),
     });
   } catch (err) {
-    console.error('forceRefresh error:', err);
-    return error(res, { statusCode: 500, message: 'Failed to refresh prayer timings' });
+    next(err);
   }
 };
 

@@ -2,22 +2,65 @@
 
 const db = require('../models');
 const { success, error } = require('../utils/response');
-const { resolveZone } = require('../utils/resolveZone');
 
 const { User, Location } = db;
+
+/**
+ * Resolves a zone location_id from a preloaded location chain (in memory).
+ * Walks up the `parent` association chain already eager-loaded by Sequelize,
+ * so no additional DB queries are made per user.
+ *
+ * @param {object} location - The Location instance already loaded with its
+ *                            nested `parent` association (up to MAX_DEPTH levels).
+ * @returns {object|null}   - The zone-type Location instance, or null if none found.
+ */
+const resolveZoneFromLoaded = (location) => {
+  let current = location;
+  let hops = 0;
+  const MAX_HOPS = 10;
+
+  while (current && current.type !== 'zone' && hops < MAX_HOPS) {
+    current = current.parent || null;
+    hops += 1;
+  }
+
+  return current && current.type === 'zone' ? current : null;
+};
+
+/**
+ * Builds a nested Sequelize include for Location → parent → parent → ...
+ * up to `depth` levels deep. This lets us load the entire ancestor chain
+ * in a single JOIN rather than N individual queries per user.
+ */
+const buildLocationInclude = (depth = 5) => {
+  let include = null;
+  for (let i = 0; i < depth; i++) {
+    include = {
+      model: Location,
+      as: 'parent',
+      required: false,
+      attributes: ['id', 'name', 'type', 'parent_id'],
+      ...(include ? { include: [include] } : {}),
+    };
+  }
+  return {
+    model: Location,
+    as: 'location',
+    required: false,
+    attributes: ['id', 'name', 'type', 'parent_id'],
+    include: include ? [include] : [],
+  };
+};
 
 /**
  * GET /api/users?status=pending
  * - super_admin: sees users across all zones
  * - admin: sees only users whose location resolves up to their own zone
  *
- * Since location_id can point to either a zone row directly (Masjid,
- * Boys Hostel, Girls) or an address row under Stanza, we can't filter
- * with a simple WHERE location_id = :zone. Instead we fetch the
- * candidate users along with their location, then resolve each one's
- * zone in application code and filter there.
+ * The location parent chain is eager-loaded in one query, then zone
+ * resolution happens in application memory — no N+1 DB queries.
  */
-const listUsers = async (req, res) => {
+const listUsers = async (req, res, next) => {
   try {
     const { status } = req.query;
     const { role, zone_location_id } = req.auth;
@@ -27,9 +70,11 @@ const listUsers = async (req, res) => {
       where.status = status;
     }
 
+    // Eager-load the full location ancestor chain so we can resolve zones
+    // in memory without issuing a DB query per user.
     const users = await User.findAll({
       where,
-      include: [{ model: Location, as: 'location' }],
+      include: [buildLocationInclude()],
       order: [['createdAt', 'DESC']],
     });
 
@@ -41,14 +86,11 @@ const listUsers = async (req, res) => {
       });
     }
 
-    // role === 'admin' -> filter to only this admin's zone
-    const filtered = [];
-    for (const user of users) {
-      const zone = await resolveZone(user.location_id, db);
-      if (zone && zone.id === zone_location_id) {
-        filtered.push(user);
-      }
-    }
+    // role === 'admin' -> filter to only this admin's zone using in-memory resolution
+    const filtered = users.filter((user) => {
+      const zone = resolveZoneFromLoaded(user.location);
+      return zone && zone.id === zone_location_id;
+    });
 
     return success(res, {
       statusCode: 200,
@@ -56,8 +98,7 @@ const listUsers = async (req, res) => {
       data: filtered,
     });
   } catch (err) {
-    console.error('List users error:', err);
-    return error(res, { statusCode: 500, message: 'Server error' });
+    next(err);
   }
 };
 
@@ -68,7 +109,7 @@ const listUsers = async (req, res) => {
  * An admin may only approve/reject users within their own zone.
  * A super_admin may act on anyone.
  */
-const updateUserStatus = async (req, res) => {
+const updateUserStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -81,14 +122,16 @@ const updateUserStatus = async (req, res) => {
       });
     }
 
-    const user = await User.findByPk(id);
+    const user = await User.findByPk(id, {
+      include: [buildLocationInclude()],
+    });
 
     if (!user) {
       return error(res, { statusCode: 404, message: 'User not found' });
     }
 
     if (role === 'admin') {
-      const zone = await resolveZone(user.location_id, db);
+      const zone = resolveZoneFromLoaded(user.location);
       if (!zone || zone.id !== zone_location_id) {
         return error(res, {
           statusCode: 403,
@@ -106,8 +149,7 @@ const updateUserStatus = async (req, res) => {
       data: { id: user.id, status: user.status },
     });
   } catch (err) {
-    console.error('Update user status error:', err);
-    return error(res, { statusCode: 500, message: 'Server error' });
+    next(err);
   }
 };
 

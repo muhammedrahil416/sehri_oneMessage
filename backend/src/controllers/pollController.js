@@ -4,6 +4,8 @@ const { Op } = require('sequelize');
 const db = require('../models');
 const { success, error } = require('../utils/response');
 const { resolveZone } = require('../utils/resolveZone');
+const logger = require('../utils/logger');
+const { VALID_ZONES } = require('../constants/zones');
 const {
   getPollPhase,
   isVotingOpen,
@@ -38,7 +40,7 @@ const getTodaysPoll = async () => {
 // Returns today's poll plus the current phase so the mobile client knows
 // which UI state to render without doing its own time math.
 // ---------------------------------------------------------------------------
-const getActivePoll = async (req, res) => {
+const getActivePoll = async (req, res, next) => {
   try {
     const poll = await getTodaysPoll();
 
@@ -78,8 +80,7 @@ const getActivePoll = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('getActivePoll error:', err);
-    return error(res, { statusCode: 500, message: 'Server error' });
+    next(err);
   }
 };
 
@@ -93,7 +94,7 @@ const getActivePoll = async (req, res) => {
 // • A user may vote only once per poll — duplicate returns 409.
 // • Zone is snapshotted from the user's current location_id at vote time.
 // ---------------------------------------------------------------------------
-const submitVote = async (req, res) => {
+const submitVote = async (req, res, next) => {
   try {
     const { id: pollId } = req.params;
     const { response: vote } = req.body;
@@ -153,8 +154,7 @@ const submitVote = async (req, res) => {
     // zone-type rows: 'masjid', 'boys_hostel', 'stanza', 'girls'.
     // resolveZone returns the Location row; we use its name lowercased as key.
     const zoneName = zoneLocation.name.toLowerCase().replace(/\s+/g, '_');
-    const validZones = ['masjid', 'boys_hostel', 'stanza', 'girls'];
-    if (!validZones.includes(zoneName)) {
+    if (!VALID_ZONES.includes(zoneName)) {
       return error(res, {
         statusCode: 422,
         message: `Zone '${zoneName}' is not a recognised delivery zone`,
@@ -179,8 +179,7 @@ const submitVote = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('submitVote error:', err);
-    return error(res, { statusCode: 500, message: 'Server error' });
+    next(err);
   }
 };
 
@@ -191,7 +190,7 @@ const submitVote = async (req, res) => {
 // Returns the calling user's full vote history across all polls, newest first.
 // Useful for the "Poll History" screen.
 // ---------------------------------------------------------------------------
-const getMyResponses = async (req, res) => {
+const getMyResponses = async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
@@ -231,8 +230,7 @@ const getMyResponses = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('getMyResponses error:', err);
-    return error(res, { statusCode: 500, message: 'Server error' });
+    next(err);
   }
 };
 
@@ -243,7 +241,7 @@ const getMyResponses = async (req, res) => {
 // Returns a zone-by-zone breakdown of today's votes.
 // Used by the admin dashboard to know how many meals to prepare per zone.
 // ---------------------------------------------------------------------------
-const getActiveStats = async (req, res) => {
+const getActiveStats = async (req, res, next) => {
   try {
     const poll = await getTodaysPoll();
 
@@ -272,9 +270,8 @@ const getActiveStats = async (req, res) => {
 
     // Shape the raw rows into a clean zone-keyed map:
     // { masjid: { yes: 5, no: 2, total: 7 }, boys_hostel: { ... }, ... }
-    const zones = ['masjid', 'boys_hostel', 'stanza', 'girls'];
     const stats = Object.fromEntries(
-      zones.map((z) => [z, { yes: 0, no: 0, total: 0 }])
+      VALID_ZONES.map((z) => [z, { yes: 0, no: 0, total: 0 }])
     );
 
     for (const row of rows) {
@@ -284,15 +281,15 @@ const getActiveStats = async (req, res) => {
     }
 
     // Compute totals per zone
-    for (const zone of zones) {
+    for (const zone of VALID_ZONES) {
       stats[zone].total = stats[zone].yes + stats[zone].no;
     }
 
     // Grand totals across all zones
     const grandTotal = {
-      yes: zones.reduce((s, z) => s + stats[z].yes, 0),
-      no: zones.reduce((s, z) => s + stats[z].no, 0),
-      total: zones.reduce((s, z) => s + stats[z].total, 0),
+      yes: VALID_ZONES.reduce((s, z) => s + stats[z].yes, 0),
+      no: VALID_ZONES.reduce((s, z) => s + stats[z].no, 0),
+      total: VALID_ZONES.reduce((s, z) => s + stats[z].total, 0),
     };
 
     return success(res, {
@@ -306,8 +303,7 @@ const getActiveStats = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('getActiveStats error:', err);
-    return error(res, { statusCode: 500, message: 'Server error' });
+    next(err);
   }
 };
 
@@ -319,7 +315,7 @@ const getActiveStats = async (req, res) => {
 // Returns the names of users who voted 'yes' in a specific zone for a given
 // poll. Admins see only their own zone unless they are super_admin.
 // ---------------------------------------------------------------------------
-const getZoneVoters = async (req, res) => {
+const getZoneVoters = async (req, res, next) => {
   try {
     const { id: pollId } = req.params;
 
@@ -351,11 +347,10 @@ const getZoneVoters = async (req, res) => {
     }
 
     // Validate zone value if provided
-    const validZones = ['masjid', 'boys_hostel', 'stanza', 'girls'];
-    if (targetZone && !validZones.includes(targetZone)) {
+    if (targetZone && !VALID_ZONES.includes(targetZone)) {
       return error(res, {
         statusCode: 400,
-        message: `Invalid zone '${targetZone}'. Must be one of: ${validZones.join(', ')}`,
+        message: `Invalid zone '${targetZone}'. Must be one of: ${VALID_ZONES.join(', ')}`,
       });
     }
 
@@ -410,8 +405,7 @@ const getZoneVoters = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('getZoneVoters error:', err);
-    return error(res, { statusCode: 500, message: 'Server error' });
+    next(err);
   }
 };
 
