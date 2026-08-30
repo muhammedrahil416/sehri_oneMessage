@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import {useAuthStore} from '../../store/useAuthStore'; // Zustand auth store
 import client from '../../api/client'; // Your existing Axios client instance
+import { prayersApi } from '../../api/prayers';
 
 // ==========================================
 // PRAYER NAMES LIST (Vertical Order Spec)
@@ -37,9 +38,11 @@ export default function HomeScreen() {
 
   // 1. ZUSTAND STORE: Pull logged-in user details
   const user = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
 
   // 2. COMPONENT STATES
   const [namazTimings, setNamazTimings] = useState(null);
+  const [hijriDate, setHijriDate] = useState(null);
   const [loadingTimings, setLoadingTimings] = useState(true);
 
   // Poll-related states
@@ -59,17 +62,28 @@ export default function HomeScreen() {
       const fetchPrayerTimes = async () => {
         try {
           setLoadingTimings(true);
-          
-          // Axios GET call using your client.js instance
-          // Automatically includes base URL, headers, and token interceptors
-          const response = await client.get('/namaz-timings');
 
-          if (isMounted) {
-            // Axios automatically parses JSON to response.data
-            setNamazTimings(response.data); 
+          const result = await prayersApi.getToday();
+
+          if (isMounted && result.success) {
+            const { timings, tahajjud_time, imsak_time, date_hijri } = result.data;
+
+            setHijriDate(date_hijri);
+            setNamazTimings({
+              tahajjud: tahajjud_time,
+              imsak:    imsak_time,
+              fajr:     timings?.Fajr,
+              sunrise:  timings?.Sunrise,
+              dhuhr:    timings?.Dhuhr,
+              asr:      timings?.Asr,
+              iftar:    timings?.Maghrib,   // Iftar = Maghrib time
+              maghrib:  timings?.Maghrib,
+              isha:     timings?.Isha,
+              juma:     null,               // Not in API — Juma is weekly, not daily
+            });
           }
         } catch (error) {
-          console.error('Error fetching Namaz timings via Axios:', error);
+          console.error('Error fetching prayer timings:', error);
           if (isMounted) {
             setNamazTimings(null);
           }
@@ -230,6 +244,14 @@ export default function HomeScreen() {
         >
           <Ionicons name="person-circle-outline" size={38} color="#1E293B" />
         </TouchableOpacity>
+
+        {/* Temporary logout button for testing */}
+        <TouchableOpacity
+          onPress={async () => { await logout(); router.replace('/(auth)/login'); }}
+          style={{ marginLeft: 8, padding: 6 }}
+        >
+          <Ionicons name="log-out-outline" size={28} color="#DC2626" />
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -240,7 +262,12 @@ export default function HomeScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="time-outline" size={22} color="#0D9488" />
-            <Text style={styles.cardTitle}>Daily Namaz Timings</Text>
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text style={styles.cardTitle}>Daily Namaz Timings</Text>
+              {hijriDate && (
+                <Text style={styles.hijriDate}>{hijriDate}</Text>
+              )}
+            </View>
           </View>
 
           {loadingTimings ? (
@@ -248,7 +275,7 @@ export default function HomeScreen() {
           ) : (
             <View style={styles.verticalTimingsContainer}>
               {PRAYER_KEYS.map((item, index) => {
-                const timeValue = namazTimings ? namazTimings[item.key] : '--:--';
+                const timeValue = namazTimings ? (namazTimings[item.key] ?? '--:--') : '--:--';
                 const isLast = index === PRAYER_KEYS.length - 1;
 
                 return (
@@ -424,6 +451,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#1E293B',
+    marginLeft: 8,
+  },
+  hijriDate: {
+    fontSize: 12,
+    color: '#0D9488',
+    marginTop: 2,
     marginLeft: 8,
   },
 
