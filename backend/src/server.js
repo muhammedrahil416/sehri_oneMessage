@@ -1,30 +1,41 @@
 require('dotenv').config();
 const express = require("express");
-const authRoutes = require("./routes/authRoutes");   // teammate's registration route (unchanged)
-const sendOtpRoutes = require("./routes/auth");        // your OTP route
-const { testConnection } = require("./config/database"); // your DB connection
+const cors = require("cors");
+const authRoutes = require("./routes/authRoutes");   // registration / login / forgot-password
+const sendOtpRoutes = require("./routes/auth");        // send-otp
+const { testConnection } = require("./config/database");
 const userRoutes = require("./routes/users");
-
+const pollRoutes = require("./routes/polls");
+const locationRoutes = require("./routes/locations");
+const prayerRoutes = require("./routes/prayers");
 
 const app = express();
+
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || "*",
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  console.log("Request received!");
   res.send("Sehri backend is running");
 });
 
-app.use("/api/auth", authRoutes);      // handles /api/auth/register (their code)
-app.use("/api/auth", sendOtpRoutes);   // handles /api/auth/send-otp (your code)
+app.use("/api/auth", authRoutes);
+app.use("/api/auth", sendOtpRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/polls", pollRoutes);
+app.use("/api/locations", locationRoutes);
+app.use("/api/prayers", prayerRoutes);
 
 const PORT = process.env.PORT || 5000;
 
-// Confirm the DB is reachable before accepting any requests
 testConnection()
   .then(() => {
-    app.listen(PORT, "127.0.0.1", () => {
-      console.log(`Server running at http://127.0.0.1:${PORT}`);
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT}`);
     });
   })
   .catch((err) => {
