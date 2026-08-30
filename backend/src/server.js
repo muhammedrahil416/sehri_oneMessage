@@ -7,6 +7,7 @@ const { testConnection } = require("./config/database");
 const userRoutes = require("./routes/users");
 const pollRoutes = require("./routes/polls");
 const locationRoutes = require("./routes/locations");
+const prayerRoutes = require("./routes/prayers");
 
 const app = express();
 
@@ -27,7 +28,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/auth", sendOtpRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/polls", pollRoutes);
-app.use("/api/locations", locationRoutes);  // public — used by registration screen
+app.use("/api/locations", locationRoutes);   // public — used by registration screen
+app.use("/api/prayers", prayerRoutes);
 
 const PORT = process.env.PORT || 5000;
 
