@@ -1,5 +1,4 @@
 'use strict';
-
 module.exports = (sequelize, DataTypes) => {
   const SuperAdmin = sequelize.define(
     'SuperAdmin',
@@ -30,10 +29,25 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         defaultValue: true,
       },
+      // When set, this super admin is also a registered user.
+      // Carrying user_id in the JWT lets them vote and access user-scoped
+      // routes without a second login.
+      user_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        defaultValue: null,
+        references: {
+          model: 'users',
+          key: 'id',
+        },
+      },
     },
     {
       tableName: 'super_admins',
-      indexes: [{ unique: true, fields: ['phone'] }],
+      indexes: [
+        { unique: true, fields: ['phone'] },
+        { fields: ['user_id'] },
+      ],
       defaultScope: {
         attributes: { exclude: ['password'] },
       },
@@ -44,6 +58,11 @@ module.exports = (sequelize, DataTypes) => {
       },
     }
   );
+
+  SuperAdmin.associate = (models) => {
+    // Optional link to a users row — set when this super admin is also a resident.
+    SuperAdmin.belongsTo(models.User, { foreignKey: 'user_id', as: 'user_account' });
+  };
 
   return SuperAdmin;
 };

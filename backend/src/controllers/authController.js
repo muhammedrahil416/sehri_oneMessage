@@ -4,8 +4,66 @@ const db = require('../models');
 const otpService = require('../services/otpService');
 const { success, error } = require('../utils/response');
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require('../utils/jwt');
-
 const { User, Location, Admin, SuperAdmin } = db;
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the JWT payload for a given role + account record.
+ *
+ * user_id is included in admin/super_admin tokens when the account has a
+ * linked users row. This lets those roles hit user-scoped routes (voting,
+ * poll history, etc.) without needing a separate login.
+ */
+const buildTokenPayload = (role, account) => {
+  const payload = { id: account.id, role };
+
+  if (role === 'admin') {
+    payload.zone_location_id = account.zone_location_id;
+  }
+
+  // Carry the linked user identity for admin and super_admin so they can
+  // act as a regular user when the token is active for that role.
+  if ((role === 'admin' || role === 'super_admin') && account.user_id) {
+    payload.user_id = account.user_id;
+  }
+
+  return payload;
+};
+
+/**
+ * Given a phone number, checks all three tables and returns every role
+ * that phone number holds, along with the account record for each.
+ *
+ * Returns: { superAdminAccount, adminAccount, userAccount }
+ * Any of these may be null if the phone doesn't exist in that table.
+ */
+const findAllRolesForPhone = async (phone) => {
+  const [superAdminAccount, adminAccount, userAccount] = await Promise.all([
+    SuperAdmin.scope('withPassword').findOne({ where: { phone } }),
+    Admin.scope('withPassword').findOne({ where: { phone } }),
+    User.scope('withPassword').findOne({ where: { phone } }),
+  ]);
+  return { superAdminAccount, adminAccount, userAccount };
+};
+
+/**
+ * Derives the list of role strings held by a phone number.
+ * Used to populate available_roles in the login response.
+ */
+const deriveAvailableRoles = ({ superAdminAccount, adminAccount, userAccount }) => {
+  const roles = [];
+  if (userAccount) roles.push('user');
+  if (adminAccount) roles.push('admin');
+  if (superAdminAccount) roles.push('super_admin');
+  return roles;
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/register
+// ---------------------------------------------------------------------------
 const registerUser = async (req, res, next) => {
   try {
     const {
@@ -19,39 +77,27 @@ const registerUser = async (req, res, next) => {
       address,
       otp,
     } = req.body;
-    // 1 & 2. Verify OTP — handles lookup, expiry, attempt-limiting, and
-    // provider branching (local vs MessageCentral) internally.
-    // verifyOtp throws AppError on known failures (expired, too many attempts).
+
     const isOtpValid = await otpService.verifyOtp(phone, 'registration', otp);
     if (!isOtpValid) {
-      return error(res, {
-        statusCode: 400,
-        message: 'Invalid OTP',
-      });
+      return error(res, { statusCode: 400, message: 'Invalid OTP' });
     }
-    // 3. Check whether phone is already registered
-    const existingUser = await User.findOne({
-      where: { phone },
-    });
+
+    const existingUser = await User.findOne({ where: { phone } });
     if (existingUser) {
       return error(res, {
         statusCode: 409,
         message: 'Phone number is already registered',
       });
     }
-    // 4. Check whether location exists and is a valid registration target
-    //    (a 'zone' or 'address' row — not 'city'/'area', which are just
-    //    structural grouping levels).
+
     const location = await Location.findByPk(location_id);
     if (!location || !['zone', 'address'].includes(location.type)) {
-      return error(res, {
-        statusCode: 400,
-        message: 'Invalid location',
-      });
+      return error(res, { statusCode: 400, message: 'Invalid location' });
     }
-    // 5. Hash password
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    // 6. Create user
+
     const user = await User.create({
       name,
       phone,
@@ -64,7 +110,7 @@ const registerUser = async (req, res, next) => {
       status: 'pending',
       is_phone_verified: true,
     });
-    // 7. Send response
+
     return success(res, {
       statusCode: 201,
       message: 'Registration successful',
@@ -81,14 +127,14 @@ const registerUser = async (req, res, next) => {
   }
 };
 
-/**
- * POST /api/auth/login
- * Body: { phone, password }
- *
- * Server auto-detects role by checking super_admins -> admins -> users,
- * in that order (highest privilege first, first match wins). The client
- * never declares its own role.
- */
+// ---------------------------------------------------------------------------
+// POST /api/auth/login
+// Body: { phone, password }
+//
+// Checks all three tables for the phone number in parallel, then logs in
+// under the highest role found. Returns available_roles so the client
+// knows whether to show a role switcher in the profile section.
+// ---------------------------------------------------------------------------
 const loginUser = async (req, res, next) => {
   try {
     const { phone, password } = req.body;
@@ -100,16 +146,21 @@ const loginUser = async (req, res, next) => {
       });
     }
 
-    let account = await SuperAdmin.scope('withPassword').findOne({ where: { phone } });
-    let role = 'super_admin';
+    const accounts = await findAllRolesForPhone(phone);
+    const { superAdminAccount, adminAccount, userAccount } = accounts;
 
-    if (!account) {
-      account = await Admin.scope('withPassword').findOne({ where: { phone } });
+    // Determine which account to authenticate against (highest privilege first).
+    let account = null;
+    let role = null;
+
+    if (superAdminAccount) {
+      account = superAdminAccount;
+      role = 'super_admin';
+    } else if (adminAccount) {
+      account = adminAccount;
       role = 'admin';
-    }
-
-    if (!account) {
-      account = await User.scope('withPassword').findOne({ where: { phone } });
+    } else if (userAccount) {
+      account = userAccount;
       role = 'user';
     }
 
@@ -127,6 +178,8 @@ const loginUser = async (req, res, next) => {
       });
     }
 
+    // User-role accounts must be approved before they can log in.
+    // For admin/super_admin the active flag is the only gate.
     if (role === 'user' && account.status !== 'approved') {
       return error(res, {
         statusCode: 403,
@@ -138,7 +191,6 @@ const loginUser = async (req, res, next) => {
     }
 
     const isPasswordValid = await bcrypt.compare(password, account.password);
-
     if (!isPasswordValid) {
       return error(res, {
         statusCode: 401,
@@ -146,11 +198,7 @@ const loginUser = async (req, res, next) => {
       });
     }
 
-    const tokenPayload = { id: account.id, role };
-    if (role === 'admin') {
-      tokenPayload.zone_location_id = account.zone_location_id;
-    }
-
+    const tokenPayload = buildTokenPayload(role, account);
     const accessToken = signAccessToken(tokenPayload);
     const refreshToken = signRefreshToken(tokenPayload);
 
@@ -159,18 +207,23 @@ const loginUser = async (req, res, next) => {
       await account.save();
     }
 
+    // Collect all roles this phone holds so the client can show the switcher.
+    const availableRoles = deriveAvailableRoles(accounts);
+
     return success(res, {
       statusCode: 200,
       message: 'Login successful',
       data: {
         accessToken,
         refreshToken,
-        role,
+        active_role: role,
+        available_roles: availableRoles,
         profile: {
           id: account.id,
           name: account.name,
           phone: account.phone,
           ...(role === 'admin' ? { zone_location_id: account.zone_location_id } : {}),
+          ...(account.user_id ? { user_id: account.user_id } : {}),
         },
       },
     });
@@ -179,18 +232,115 @@ const loginUser = async (req, res, next) => {
   }
 };
 
-/**
- * POST /api/auth/forgot-password/verify-otp
- * Body: { phone, otp, newPassword }
- *
- * Single endpoint that:
- *  1. Verifies the forgot_password OTP (marks it used on success)
- *  2. Finds the account across super_admins → admins → users
- *  3. Hashes and saves the new password
- *
- * The OTP was previously requested via POST /api/auth/send-otp
- * with purpose = 'forgot_password'.
- */
+// ---------------------------------------------------------------------------
+// POST /api/auth/switch-role
+// Body: { role: 'user' | 'admin' | 'super_admin' }
+// Auth: Bearer <access token>
+//
+// Issues a new token pair scoped to the requested role.
+// The caller must already hold that role (verified by checking the DB).
+// No password re-entry required — the current valid token is proof of identity.
+// ---------------------------------------------------------------------------
+const switchRole = async (req, res, next) => {
+  try {
+    const { role: requestedRole } = req.body;
+    const validRoles = ['user', 'admin', 'super_admin'];
+
+    if (!requestedRole || !validRoles.includes(requestedRole)) {
+      return error(res, {
+        statusCode: 400,
+        message: "role must be one of: 'user', 'admin', 'super_admin'",
+      });
+    }
+
+    // We already know the caller's current identity from the token.
+    // Look up their phone so we can cross-reference all tables.
+    let callerPhone = null;
+
+    if (req.auth.role === 'super_admin') {
+      const sa = await SuperAdmin.findByPk(req.auth.id, { attributes: ['phone'] });
+      callerPhone = sa?.phone;
+    } else if (req.auth.role === 'admin') {
+      const adm = await Admin.findByPk(req.auth.id, { attributes: ['phone'] });
+      callerPhone = adm?.phone;
+    } else {
+      const usr = await User.findByPk(req.auth.id, { attributes: ['phone'] });
+      callerPhone = usr?.phone;
+    }
+
+    if (!callerPhone) {
+      return error(res, { statusCode: 404, message: 'Account not found' });
+    }
+
+    // Check all tables for this phone in parallel.
+    const accounts = await findAllRolesForPhone(callerPhone);
+    const { superAdminAccount, adminAccount, userAccount } = accounts;
+
+    // Verify the requested role is actually held by this person.
+    let targetAccount = null;
+    if (requestedRole === 'super_admin') targetAccount = superAdminAccount;
+    else if (requestedRole === 'admin') targetAccount = adminAccount;
+    else if (requestedRole === 'user') targetAccount = userAccount;
+
+    if (!targetAccount) {
+      return error(res, {
+        statusCode: 403,
+        message: `You do not have the '${requestedRole}' role`,
+      });
+    }
+
+    if (targetAccount.is_active === false) {
+      return error(res, {
+        statusCode: 403,
+        message: 'This role account has been deactivated',
+      });
+    }
+
+    // User role requires approval.
+    if (requestedRole === 'user' && targetAccount.status !== 'approved') {
+      return error(res, {
+        statusCode: 403,
+        message:
+          targetAccount.status === 'pending'
+            ? 'Your user account is still pending approval'
+            : 'Your user account was rejected',
+      });
+    }
+
+    const tokenPayload = buildTokenPayload(requestedRole, targetAccount);
+    const accessToken = signAccessToken(tokenPayload);
+    const refreshToken = signRefreshToken(tokenPayload);
+
+    const availableRoles = deriveAvailableRoles(accounts);
+
+    return success(res, {
+      statusCode: 200,
+      message: `Switched to ${requestedRole}`,
+      data: {
+        accessToken,
+        refreshToken,
+        active_role: requestedRole,
+        available_roles: availableRoles,
+        profile: {
+          id: targetAccount.id,
+          name: targetAccount.name,
+          phone: targetAccount.phone,
+          ...(requestedRole === 'admin'
+            ? { zone_location_id: targetAccount.zone_location_id }
+            : {}),
+          ...(targetAccount.user_id ? { user_id: targetAccount.user_id } : {}),
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/forgot-password/verify-otp
+// Body: { phone, otp, newPassword }
+// ---------------------------------------------------------------------------
 const forgotPasswordReset = async (req, res, next) => {
   try {
     const { phone, otp, newPassword } = req.body;
@@ -216,17 +366,13 @@ const forgotPasswordReset = async (req, res, next) => {
       });
     }
 
-    // 1. Verify the OTP — this marks it as used internally on success
     const isOtpValid = await otpService.verifyOtp(phone, 'forgot_password', otp);
     if (!isOtpValid) {
-      return error(res, {
-        statusCode: 400,
-        message: 'Invalid or expired OTP',
-      });
+      return error(res, { statusCode: 400, message: 'Invalid or expired OTP' });
     }
 
-    // 2. Find the account (same priority order as login: super_admin → admin → user)
-    let account =
+    // Find the account — same priority order as login.
+    const account =
       (await SuperAdmin.scope('withPassword').findOne({ where: { phone } })) ||
       (await Admin.scope('withPassword').findOne({ where: { phone } })) ||
       (await User.scope('withPassword').findOne({ where: { phone } }));
@@ -238,7 +384,6 @@ const forgotPasswordReset = async (req, res, next) => {
       });
     }
 
-    // 3. Hash and save the new password
     account.password = await bcrypt.hash(newPassword, 10);
     await account.save();
 
@@ -251,14 +396,13 @@ const forgotPasswordReset = async (req, res, next) => {
   }
 };
 
-/**
- * POST /api/auth/refresh-token
- * Body: { refreshToken: string }
- *
- * Verifies the refresh token, issues a fresh access token, and rotates
- * the refresh token (old one is implicitly abandoned — client must store
- * the new one).
- */
+// ---------------------------------------------------------------------------
+// POST /api/auth/refresh-token
+// Body: { refreshToken: string }
+//
+// Verifies the refresh token, issues a fresh access + refresh token pair.
+// Carries forward all fields in the original payload including user_id.
+// ---------------------------------------------------------------------------
 const refreshToken = async (req, res, next) => {
   try {
     const { refreshToken: token } = req.body;
@@ -280,10 +424,17 @@ const refreshToken = async (req, res, next) => {
       });
     }
 
-    // Rebuild the payload — only carry forward the fields we originally put in
+    // Rebuild the payload, carrying forward every field that was in the original.
     const payload = { id: decoded.id, role: decoded.role };
+
     if (decoded.role === 'admin' && decoded.zone_location_id) {
       payload.zone_location_id = decoded.zone_location_id;
+    }
+
+    // Preserve user_id so admin/super_admin keep their user-side identity
+    // across silent token refreshes.
+    if (decoded.user_id) {
+      payload.user_id = decoded.user_id;
     }
 
     const newAccessToken = signAccessToken(payload);
@@ -302,4 +453,10 @@ const refreshToken = async (req, res, next) => {
   }
 };
 
-module.exports = { registerUser, loginUser, forgotPasswordReset, refreshToken };
+module.exports = {
+  registerUser,
+  loginUser,
+  switchRole,
+  forgotPasswordReset,
+  refreshToken,
+};

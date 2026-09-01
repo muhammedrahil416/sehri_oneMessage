@@ -4,13 +4,14 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 
-const authRoutes = require('./routes/authRoutes');   // registration / login / forgot-password
+const authRoutes = require('./routes/authRoutes');   // registration / login / forgot-password / switch-role
 const sendOtpRoutes = require('./routes/auth');        // send-otp
 const { testConnection } = require('./config/database');
 const userRoutes = require('./routes/users');
 const pollRoutes = require('./routes/polls');
 const locationRoutes = require('./routes/locations');
 const prayerRoutes = require('./routes/prayers');
+const adminRoutes = require('./routes/admins');        // create/manage admins + super admins
 const logger = require('./utils/logger');
 const { error } = require('./utils/response');
 
@@ -44,6 +45,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/polls', pollRoutes);
 app.use('/api/locations', locationRoutes);   // public — used by registration screen
 app.use('/api/prayers', prayerRoutes);
+app.use('/api/admin', adminRoutes);          // super_admin — manage zone admins
 
 // ---------------------------------------------------------------------------
 // Global error handler

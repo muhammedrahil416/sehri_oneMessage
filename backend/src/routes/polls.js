@@ -1,9 +1,7 @@
 'use strict';
-
 const express = require('express');
 const router = express.Router();
-
-const { verifyToken, requireRole } = require('../middleware/auth');
+const { verifyToken, requireRole, requireUserAccess } = require('../middleware/auth');
 const {
   getActivePoll,
   submitVote,
@@ -29,13 +27,15 @@ router.get('/active/stats', verifyToken, requireRole('admin', 'super_admin'), ge
 
 // GET /api/polls/my-responses
 // Paginated personal vote history for the calling user.
+// requireUserAccess: also allows admin/super_admin with a linked user account.
 // ?page=1&limit=20
-router.get('/my-responses', verifyToken, requireRole('user'), getMyResponses);
+router.get('/my-responses', verifyToken, requireUserAccess, getMyResponses);
 
 // POST /api/polls/:id/respond
-// Submit a yes/no vote. Only approved users may vote.
+// Submit a yes/no vote.
+// requireUserAccess: also allows admin/super_admin with a linked user account.
 // Body: { response: 'yes' | 'no' }
-router.post('/:id/respond', verifyToken, requireRole('user'), submitVote);
+router.post('/:id/respond', verifyToken, requireUserAccess, submitVote);
 
 // GET /api/polls/:id/zone-voters
 // Names of Yes voters in a zone for the given poll.
@@ -46,7 +46,6 @@ router.get('/:id/zone-voters', verifyToken, requireRole('admin', 'super_admin'),
 // ---------------------------------------------------------------------------
 // Person 2 — special cases, admin controls (stubs — handlers added separately)
 // ---------------------------------------------------------------------------
-
 // POST  /api/polls/:id/special-case
 // POST  /api/polls/:id/special-case/undo
 // GET   /api/polls/special-cases

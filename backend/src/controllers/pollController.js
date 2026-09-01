@@ -54,15 +54,19 @@ const getActivePoll = async (req, res, next) => {
 
     const phase = getPollPhase(poll);
 
-    // If the calling user is a regular user, also attach their own response
-    // for today so the home screen can show "You voted: Yes" without a
+    // If the calling user is a regular user (or an admin/super_admin acting
+    // as a user via requireUserAccess), also attach their own response for
+    // today so the home screen can show "You voted: Yes" without a
     // separate request.
     let myResponse = null;
-    if (req.auth.role === 'user') {
+    if (req.actingUserId) {
       myResponse = await PollResponse.findOne({
-        where: { poll_id: poll.id, user_id: req.auth.id },
+        where: { poll_id: poll.id, user_id: req.actingUserId },
         attributes: ['response', 'is_special_case', 'special_case_type', 'sehri_allowed'],
       });
+    } else if (req.auth.role === 'user') {
+      // Fallback: route hit without requireUserAccess (e.g. admin viewing)
+      myResponse = null;
     }
 
     return success(res, {
@@ -123,7 +127,7 @@ const submitVote = async (req, res, next) => {
 
     // 4. Prevent duplicate votes
     const existing = await PollResponse.findOne({
-      where: { poll_id: pollId, user_id: req.auth.id },
+      where: { poll_id: pollId, user_id: req.actingUserId },
     });
     if (existing) {
       return error(res, {
@@ -135,7 +139,7 @@ const submitVote = async (req, res, next) => {
     // 5. Resolve the user's zone from their location_id.
     //    Zone is stored as a snapshot so kitchen counts remain accurate
     //    even if the user changes zone later.
-    const user = await User.findByPk(req.auth.id, {
+    const user = await User.findByPk(req.actingUserId, {
       attributes: ['location_id'],
     });
     if (!user) {
@@ -164,7 +168,7 @@ const submitVote = async (req, res, next) => {
     // 6. Create the response
     const pollResponse = await PollResponse.create({
       poll_id: pollId,
-      user_id: req.auth.id,
+      user_id: req.actingUserId,
       response: vote,
       zone: zoneName,
     });
@@ -197,7 +201,7 @@ const getMyResponses = async (req, res, next) => {
     const offset = (page - 1) * limit;
 
     const { count, rows } = await PollResponse.findAndCountAll({
-      where: { user_id: req.auth.id },
+      where: { user_id: req.actingUserId },
       include: [
         {
           model: Poll,
