@@ -16,25 +16,18 @@ import { authApi } from '../../api/auth';
 import { useAuthStore } from '../../store/useAuthStore';
 
 export default function LoginScreen() {
-  const router = useRouter();
+  const router  = useRouter();
   const setAuth = useAuthStore((state) => state.setAuth);
 
-  // Form State
-  const [phone, setPhone] = useState('');
+  const [phone,    setPhone]    = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('user');
+  const [loading,  setLoading]  = useState(false);
 
-  // UI State
-  const [loading, setLoading] = useState(false);
-
-
-  // Login Submission Handler
   const handleLogin = async () => {
-  if (!phone) {
+    if (!phone) {
       Alert.alert('Error', 'Please enter your phone number');
       return;
     }
-
     if (!password) {
       Alert.alert('Error', 'Please enter your password');
       return;
@@ -42,12 +35,18 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      const response = await authApi.login({ phone, password, role });
+      // Backend auto-detects the highest role — no role param needed
+      const response = await authApi.login({ phone, password });
+      const { accessToken, refreshToken, active_role, available_roles, profile } = response.data;
 
-      // Backend wraps data under response.data; profile is under data.profile
-      const { accessToken, refreshToken, profile } = response.data;
-      await setAuth(profile, accessToken, refreshToken);
-      router.replace('/(app)/home');
+      await setAuth(profile, accessToken, refreshToken, active_role, available_roles);
+
+      // Route to the correct home based on the returned active role
+      if (active_role === 'admin' || active_role === 'super_admin') {
+        router.replace('/(admin)');
+      } else {
+        router.replace('/(user)');
+      }
     } catch (error) {
       const msg = error.response?.data?.message || 'Login failed. Please check your credentials.';
       Alert.alert('Login Error', msg);
@@ -65,23 +64,6 @@ export default function LoginScreen() {
         <Text style={styles.title}>One Message</Text>
         <Text style={styles.subtitle}>Sign in to your account</Text>
 
-        {/* Role Selection */}
-        <Text style={styles.label}>Select Role</Text>
-        <View style={styles.roleContainer}>
-          {['user', 'admin', 'super_admin'].map((item) => (
-            <TouchableOpacity
-              key={item}
-              style={[styles.roleButton, role === item && styles.roleButtonActive]}
-              onPress={() => setRole(item)}
-            >
-              <Text style={[styles.roleText, role === item && styles.roleTextActive]}>
-                {item === 'super_admin' ? 'Super Admin' : item.charAt(0).toUpperCase() + item.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-
         {/* Phone Input */}
         <Text style={styles.label}>Phone Number</Text>
         <TextInput
@@ -93,31 +75,26 @@ export default function LoginScreen() {
           maxLength={10}
         />
 
-        {/* Password Login Mode */}
-          
-            <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter password"
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
-            {/* INSERT FORGOT PASSWORD HERE */}
-    <TouchableOpacity 
-      style={styles.forgotPasswordContainer}
-      onPress={() => router.push('/(auth)/forgot-password')}
-    >
-      <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-    </TouchableOpacity>
-  
+        {/* Password */}
+        <Text style={styles.label}>Password</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter password"
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+        />
 
-
-       
-
-        {/* Submit Button */}
+        {/* Forgot Password */}
         <TouchableOpacity
-        
+          style={styles.forgotPasswordContainer}
+          onPress={() => router.push('/(auth)/forgot-password')}
+        >
+          <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+        </TouchableOpacity>
+
+        {/* Login Button */}
+        <TouchableOpacity
           style={styles.submitButton}
           onPress={handleLogin}
           disabled={loading}
@@ -125,9 +102,7 @@ export default function LoginScreen() {
           {loading ? (
             <ActivityIndicator color="#FFF" />
           ) : (
-            <Text style={styles.submitText}>
-              Login
-            </Text>
+            <Text style={styles.submitText}>Login</Text>
           )}
         </TouchableOpacity>
 
@@ -137,20 +112,18 @@ export default function LoginScreen() {
           onPress={() => router.push('/(auth)/register')}
         >
           <Text style={styles.registerText}>
-           {" Don't have an account?"} <Text style={styles.boldText}>Register</Text>
+            {" Don't have an account?"} <Text style={styles.boldText}>Register</Text>
           </Text>
         </TouchableOpacity>
 
-        {/* App Description */}
-<View style={styles.aboutContainer}>
-  <Text style={styles.aboutTitle}>About One Message</Text>
-  <Text style={styles.aboutDescription}>
-    One Message is a unified platform designed to streamline messaging and 
-    administrative access for Users, Admins, and Super Admins.
-  </Text>
-</View>
-
-
+        {/* About */}
+        <View style={styles.aboutContainer}>
+          <Text style={styles.aboutTitle}>About One Message</Text>
+          <Text style={styles.aboutDescription}>
+            One Message is a unified platform designed to streamline messaging and
+            administrative access for Users, Admins, and Super Admins.
+          </Text>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -170,25 +143,8 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
   },
-  roleContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
-  roleButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 8,
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  roleButtonActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
-  roleText: { fontSize: 12, fontWeight: '600', color: '#64748B' },
-  roleTextActive: { color: '#FFF' },
-  tabContainer: { flexDirection: 'row', marginBottom: 16, borderBottomWidth: 1, borderColor: '#E2E8F0' },
-  tab: { flex: 1, paddingVertical: 10, alignItems: 'center' },
-  tabActive: { borderBottomWidth: 2, borderColor: '#2563EB' },
-  tabText: { fontSize: 14, fontWeight: '600', color: '#1E293B' },
-  otpHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sendOtpLink: { fontSize: 14, color: '#2563EB', fontWeight: '600' },
+  forgotPasswordContainer: { alignSelf: 'flex-end', marginBottom: 20, marginTop: 8 },
+  forgotPasswordText: { color: '#2563EB', fontSize: 14, fontWeight: '500' },
   submitButton: {
     backgroundColor: '#2563EB',
     paddingVertical: 14,
@@ -196,38 +152,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 48,
-    marginTop: 16,
+    marginTop: 4,
   },
   submitText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
   registerLink: { marginTop: 16, alignItems: 'center' },
   registerText: { color: '#64748B', fontSize: 14 },
   boldText: { color: '#2563EB', fontWeight: 'bold' },
-  forgotPasswordContainer: {
-  alignSelf: 'flex-end',
-  marginBottom: 20,
-  marginTop: 8,
-},
-forgotPasswordText: {
-  color: '#2563EB',
-  fontSize: 14,
-  fontWeight: '500',
-},
-aboutContainer: {
-  marginTop: 24,
-  paddingHorizontal: 16,
-  alignItems: 'center',
-},
-aboutTitle: {
-  fontSize: 14,
-  fontWeight: '600',
-  color: '#475569',
-  marginBottom: 4,
-},
-aboutDescription: {
-  fontSize: 12,
-  color: '#94A3B8',
-  textAlign: 'center',
-  lineHeight: 18,
-},
-}
-);
+  aboutContainer: { marginTop: 24, paddingHorizontal: 16, alignItems: 'center' },
+  aboutTitle: { fontSize: 14, fontWeight: '600', color: '#475569', marginBottom: 4 },
+  aboutDescription: { fontSize: 12, color: '#94A3B8', textAlign: 'center', lineHeight: 18 },
+});
