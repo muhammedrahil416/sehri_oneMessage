@@ -35,6 +35,18 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATE,
         allowNull: true,
       },
+      // The rider assigned by the super admin to deliver for this poll day.
+      // Set between 6–10 PM after the allotment window closes.
+      // Null = not yet assigned.
+      assigned_rider_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        defaultValue: null,
+        references: {
+          model: 'riders',
+          key: 'id',
+        },
+      },
     },
     {
       tableName: 'polls',
@@ -49,6 +61,10 @@ module.exports = (sequelize, DataTypes) => {
     Poll.hasMany(models.PollResponse, {
       foreignKey: 'poll_id',
       as: 'responses',
+    });
+    Poll.belongsTo(models.Rider, {
+      foreignKey: 'assigned_rider_id',
+      as: 'assigned_rider',
     });
   };
 
